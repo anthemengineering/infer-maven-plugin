@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.anthemengineering;
+package com.anthemengineering.mojo.infer;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.maven.artifact.DependencyResolutionRequiredException;
