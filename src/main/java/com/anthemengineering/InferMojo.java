@@ -1,5 +1,3 @@
-package com.anthemengineering;
-
 /*
  * Copyright 2015 Anthem Engineering LLC.
  *
@@ -16,11 +14,7 @@ package com.anthemengineering;
  * limitations under the License.
  */
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import com.google.common.io.Files;
+package com.anthemengineering;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.maven.artifact.DependencyResolutionRequiredException;
@@ -35,12 +29,14 @@ import org.apache.maven.project.MavenProject;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Runs Infer over Java source files in the main source (test sources are ignored). Basic results information of the
@@ -71,7 +67,7 @@ public class InferMojo extends AbstractMojo {
      * specifically targeted per process running Infer, this keeps a map of that source file name to the exit code of
      * the Infer process analyzing it.
      */
-    private static final Map<File, Integer> FAILED_CHECKS = Maps.newHashMap();
+    private static final Map<File, Integer> FAILED_CHECKS = new HashMap<File, Integer>();
 
     @Parameter(defaultValue = "${project}", required = true, readonly = true)
     private MavenProject project;
@@ -84,127 +80,189 @@ public class InferMojo extends AbstractMojo {
 
     @Override
     public void execute() throws MojoExecutionException {
-        final AtomicInteger failures = new AtomicInteger();
-        failures.set(0);
-
-        // temporary directory for storing .class files created by {@code javac}
-        final File tmpDir = Files.createTempDir();
-        tmpDir.deleteOnExit();
 
         try {
-            final String classpath = getRuntimeCompileClasspath();
-            final File currentDir = new File(System.getProperty("user.dir"));
-
-            // infer output to build dir of project maven was run from
-            final File inferDir = new File(currentDir, "target/infer-out");
-            FileUtils.forceMkdir(inferDir);
-
+            // get source directory, if it doesn't exist then we're done
             final File sourceDir = new File(project.getBuild().getSourceDirectory());
 
-            if (!sourceDir.exists()) {
+            if (sourceDir == null || !sourceDir.exists()) {
                 return;
             }
 
+            final File inferOutputDir = getInferOutputDir();
+
+            // collect source files
             final Collection<File> sourceFiles = FileUtils.listFiles(sourceDir, new String[] {"java"}, true);
 
-            int numSourceFiles = sourceFiles.size();
+            // TODO: fix me SimpleSourceInclusionScanner;
+            //     new SimpleSourceInclusionScanner(Collections.singleton("**/*.java"), Collections.EMPTY_SET)
+            //           .getIncludedSources(sourceDir, null);
+
+            final int numSourceFiles = sourceFiles.size();
             fileCount = fileCount + numSourceFiles;
 
-            // used to wait for all processes running infer to complete
-            final CountDownLatch doneSignal = new CountDownLatch(numSourceFiles);
+            final String classpath = getRuntimeAndCompileClasspath();
 
-            // TODO: optionally allow debugging info? Output directory?
+            completeInferExecutions(classpath, inferOutputDir, sourceFiles, numSourceFiles);
 
-            // TODO: a better way to do this may be to determine if there is an entry point that takes a set of source
-            //  files and the classpath and use this. @See mvn, inferj and inferlib in the infer repository.
-            for (final File sourceFile : sourceFiles) {
-                final Runnable r = new Runnable() {
-                    @Override
-                    public void run() {
-                        Process proc = null;
-
-                        try {
-                            // infer
-                            List<String> command = Lists.newArrayList("infer");
-                            command.add("-i");
-                            command.add("-o");
-                            command.add(inferDir.getAbsolutePath());
-
-                            command.add("--");
-
-                            // javac
-                            command.add("javac");
-                            command.add(sourceFile.getAbsolutePath());
-                            command.add("-d");
-                            command.add(tmpDir.getAbsolutePath());
-                            command.add("-classpath");
-                            command.add(classpath);
-
-
-                            final ProcessBuilder builder = new ProcessBuilder(command);
-                            builder.environment().putAll(System.getenv());
-                            if (consoleOut) {
-                                builder.inheritIO();
-                            }
-
-                            proc = builder.start();
-
-                            // NOTE: Every execution ends in failure during analysis, however,
-                            // supported java bugs are still reported
-                            proc.waitFor();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        } finally {
-                            try {
-                                // currently they all fail, although java bugs are still reported
-                                if (proc.exitValue() != 0) {
-                                    FAILED_CHECKS.put(sourceFile, proc.exitValue());
-                                }
-                            } catch (Exception e) {
-                                FAILED_CHECKS.put(sourceFile, -1);
-                            } finally {
-                                // increment the total number of failures.
-                                failures.set(failures.intValue() + 1);
-                            }
-                            doneSignal.countDown();
-                        }
-                    }
-                };
-
-                new Thread(r).start();
-            }
-
-            doneSignal.await();
-
-            final File bugsFile = new File(inferDir, "bugs.txt");
-            getLog().info("Infer output can be located at: " + inferDir.toString());
-            getLog().info("");
-            getLog().info("Results of Infer check:");
-
-            if (bugsFile.exists()) {
-                final String bugs = Files.toString(bugsFile, StandardCharsets.UTF_8);
-
-                getLog().info(System.lineSeparator() + System.lineSeparator() + bugs);
-            } else {
-                getLog().error("No bugs report generated; infer probably did not complete successfully.");
-            }
-            getLog().info("");
-            getLog().info(
-                    String.format(
-                            "Infer review complete; %s files were analyzed for this module, "
-                                    + "%s files have been analyzed so far, in total.", numSourceFiles, fileCount));
-
-            //TODO: consider adding this when analyze doesnt fail.
-            //printFailedChecks();
-            getLog().info("");
+            reportResults(inferOutputDir, numSourceFiles);
         } catch (DependencyResolutionRequiredException e) {
-            e.printStackTrace();
+            getLog().error(e);
+            throw new MojoExecutionException("Unable to get required dependencies to perform Infer check!", e);
+        }
+        //catch (InclusionScanException e) {
+        //    getLog().error(e);
+        // }
+    }
+
+    /**
+     * Gets/Creates the directory where Infer output will be written.
+     *
+     * @return the directory where Infer output will be written
+     * @throws MojoExecutionException if the Infer output directory cannot be created
+     */
+    private File getInferOutputDir() throws MojoExecutionException {
+        final File currentDir = new File(System.getProperty("user.dir"));
+
+        // infer output to build dir of project maven was run from
+        final File inferDir = new File(currentDir, "target/infer-out");
+        try {
+            FileUtils.forceMkdir(inferDir);
+        } catch (final IOException e) {
+            getLog().error(e);
+            throw new MojoExecutionException("Exception occurred trying to generate output directory for Infer!", e);
+        }
+
+        return inferDir;
+    }
+
+    /**
+     * Logs results of Infer check to the Maven console.
+     * @param inferOutputDir directory where Infer wrote its results
+     * @param numSourceFiles number of source files analyzed in this module
+     */
+    private void reportResults(File inferOutputDir, int numSourceFiles) {
+        final File bugsFile = new File(inferOutputDir, "bugs.txt");
+        getLog().info("Infer output can be located at: " + inferOutputDir.toString());
+        getLog().info("");
+        getLog().info("Results of Infer check:");
+
+        if (bugsFile.exists()) {
+            try {
+                final String bugs;
+                bugs = FileUtils.readFileToString(bugsFile, StandardCharsets.UTF_8);
+                getLog().info(System.lineSeparator() + System.lineSeparator() + bugs);
+            } catch (IOException e) {
+                getLog().error(
+                        String.format(
+                                "Exception occurred trying to read bugs report at: %s, no bugs will be reported.",
+                                bugsFile.getAbsolutePath()), e);
+            }
+        } else {
+            getLog().error("No bugs report generated; infer probably did not complete successfully.");
+        }
+        getLog().info("");
+        getLog().info(
+                String.format(
+                        "Infer review complete; %s files were analyzed for this module, "
+                                + "%s files have been analyzed so far, in total.", numSourceFiles, fileCount));
+
+        //TODO: consider adding this when analyze doesnt fail.
+        //printFailedChecks();
+        getLog().info("");
+    }
+
+    /**
+     * Executes infer once for each source file and writes the output to {@code inferOutputDir}.
+     *
+     * @param classpath classpath used as an argument to the javac command given to Infer.
+     * @param inferOutputDir directory where Infer will write its output
+     * @param sourceFiles collection of files for Infer to analyze
+     * @param numSourceFiles number of source files to analyze; used to make sure every Infer execution finishes
+     * before moving on.
+     */
+    private void completeInferExecutions(
+            final String classpath, final File inferOutputDir, Collection<File> sourceFiles, int numSourceFiles)
+            throws MojoExecutionException {
+        // temporary directory for storing .class files created by {@code javac}; placed in build directory
+        final File buildTmpDir = new File(project.getBuild().getDirectory(), "javacOut");
+        try {
+            FileUtils.forceMkdir(buildTmpDir);
         } catch (IOException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+            final String errMsg = String.format("Unable to temp directory %s!", buildTmpDir.getAbsolutePath());
+            getLog().error(errMsg, e);
+            throw new MojoExecutionException(errMsg, e);
+        }
+        buildTmpDir.deleteOnExit();
+
+        // used to wait for all processes running infer to complete
+        final CountDownLatch doneSignal = new CountDownLatch(numSourceFiles);
+
+        // TODO: optionally allow debugging info? Output directory?
+
+        // TODO: a better way to do this may be to determine if there is an entry point that takes a set of source
+        //  files and the classpath and use this. @See mvn, inferj and inferlib in the infer repository.
+        for (final File sourceFile : sourceFiles) {
+            final Runnable r = new Runnable() {
+                @Override
+                public void run() {
+                    Process proc = null;
+
+                    try {
+                        // infer
+                        List<String> command = new ArrayList<String>();
+                        command.add("infer");
+                        command.add("-i");
+                        command.add("-o");
+                        command.add(inferOutputDir.getAbsolutePath());
+
+                        command.add("--");
+
+                        // javac
+                        command.add("javac");
+                        command.add(sourceFile.getAbsolutePath());
+                        command.add("-d");
+                        command.add(buildTmpDir.getAbsolutePath());
+                        command.add("-classpath");
+                        command.add(classpath);
+
+                        final ProcessBuilder builder = new ProcessBuilder(command);
+                        builder.environment().putAll(System.getenv());
+                        if (consoleOut) {
+                            builder.inheritIO();
+                        }
+
+                        proc = builder.start();
+
+                        // NOTE: most/all executions end in failure during analysis, however,
+                        // supported java bugs are still reported
+                        proc.waitFor();
+                    } catch (final IOException e) {
+                        getLog().error(
+                                "Exception occurred while trying to perform Infer execution; output not complete", e);
+                    } catch (final InterruptedException e) {
+                        getLog().error("Problem while waiting for Infer to finish; Infer output may be innacurate.", e);
+                    } finally {
+                        try {
+                            // currently they all fail, although java bugs are still reported
+                            if (proc.exitValue() != 0) {
+                                FAILED_CHECKS.put(sourceFile, proc.exitValue());
+                            }
+                        } catch (Exception e) {
+                            FAILED_CHECKS.put(sourceFile, -1);
+                        }
+                        doneSignal.countDown();
+                    }
+                }
+            };
+
+            new Thread(r).start();
+        }
+
+        try {
+            doneSignal.await();
+        } catch (final InterruptedException e) {
+            getLog().error("Problem while waiting for Infer to finish; Infer output may be innacurate.", e);
         }
     }
 
@@ -230,17 +288,25 @@ public class InferMojo extends AbstractMojo {
      * classpath argument to javac
      * @throws DependencyResolutionRequiredException
      */
-    private String getRuntimeCompileClasspath() throws DependencyResolutionRequiredException {
-        final String classpath;
+    private String getRuntimeAndCompileClasspath() throws DependencyResolutionRequiredException {
         final List<String> compileClasspathElements = project.getCompileClasspathElements();
         final List<String> runtimeClasspathElements = project.getRuntimeClasspathElements();
 
-        final Set<String> classPathElements = Sets.newHashSet();
+        final Set<String> classPathElements = new HashSet();
         classPathElements.addAll(compileClasspathElements);
         classPathElements.addAll(runtimeClasspathElements);
 
-        classpath = Joiner.on(":").join(classPathElements);
-        return classpath;
+        final StringBuilder classpath = new StringBuilder();
+        boolean first = true;
+        for (String element : classPathElements) {
+            if (!first) {
+                classpath.append(':');
+            }
+            classpath.append(element);
+            first = false;
+        }
+
+        return classpath.toString();
     }
 
     /**
