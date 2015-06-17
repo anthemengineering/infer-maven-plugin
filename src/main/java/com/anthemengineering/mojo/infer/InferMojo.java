@@ -16,6 +16,9 @@
 
 package com.anthemengineering.mojo.infer;
 
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.apache.commons.compress.compressors.xz.XZCompressorInputStream;
 import org.apache.commons.io.FileUtils;
 import org.apache.maven.artifact.DependencyResolutionRequiredException;
 import org.apache.maven.plugin.AbstractMojo;
@@ -25,12 +28,24 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
+import org.codehaus.plexus.compiler.util.scan.InclusionScanException;
+import org.codehaus.plexus.compiler.util.scan.SimpleSourceInclusionScanner;
+import org.codehaus.plexus.compiler.util.scan.mapping.SuffixMapping;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -50,17 +65,27 @@ import java.util.concurrent.CountDownLatch;
  * </p>
  * Java 8 is not yet supported by Infer.
  * </p>
+ * The {@code PATH} is searched for the Infer script/command; if it is not found, Infer will be downloaded.
+ * </p>
  * Before this plugin executes, it is recommended that a {@code mvn clean} takes
  * place.
  */
 @Mojo(name = "infer", defaultPhase = LifecyclePhase.VERIFY,
         requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME, threadSafe = true)
 public class InferMojo extends AbstractMojo {
+    // constants for downloading
+    private static final int CONNECTION_TIMEOUT = 60000;
+    private static final int READ_TIMEOUT = 60000;
 
     /**
      * Total number of files analyzed during this build.
      */
     private static int fileCount;
+
+    /**
+     * Path to Infer script.
+     */
+    private static String inferPath;
 
     /**
      * Currently unused, this map keeps track of Infer executions that failed; since there is only one java source file
@@ -73,13 +98,46 @@ public class InferMojo extends AbstractMojo {
     private MavenProject project;
 
     /**
+     * True if Infer should be downloaded rather than using an installed version. Infer will be installed once per build
+     * into the build directory of the project Maven was run from.
+     */
+    @Parameter(property = "infer.download", defaultValue = "true")
+    private boolean download;
+
+    /**
+     * Path to the infer executable/script; or by default {@code infer}, which works when the infer directory has
+     * been added to the {@code PATH} environment variable.
+     */
+    @Parameter(property = "infer.commandPath", defaultValue = "infer")
+    private String inferCommand;
+
+    /**
      * Display the output of each execution of Infer.
      */
     @Parameter(property = "infer.consoleOut")
     private boolean consoleOut;
 
+    /**
+     * Output directory for Infer.
+     */
+    @Parameter(property = "infer.outputDir")
+    private String inferDir;
+
     @Override
     public void execute() throws MojoExecutionException {
+        if (inferDir == null) {
+            inferDir = Paths.get(System.getProperty("user.dir"), "target").toString();
+        }
+
+        if (inferPath != null && !inferPath.equals("infer")) {
+            getLog().info(String.format("Infer path set to: %s", inferPath));
+        }
+        // check if infer is on the PATH and if not, then download it.
+        if (inferPath == null && download) {
+            inferPath = downloadInfer(new File(inferDir, "infer-download"));
+        } else if (inferPath == null) {
+            inferPath = inferCommand;
+        }
 
         try {
             // get source directory, if it doesn't exist then we're done
@@ -91,12 +149,10 @@ public class InferMojo extends AbstractMojo {
 
             final File inferOutputDir = getInferOutputDir();
 
-            // collect source files
-            final Collection<File> sourceFiles = FileUtils.listFiles(sourceDir, new String[] {"java"}, true);
-
-            // TODO: fix me SimpleSourceInclusionScanner;
-            //     new SimpleSourceInclusionScanner(Collections.singleton("**/*.java"), Collections.EMPTY_SET)
-            //           .getIncludedSources(sourceDir, null);
+            final SimpleSourceInclusionScanner scanner = new SimpleSourceInclusionScanner(
+                    Collections.singleton("**/*.java"), Collections.EMPTY_SET);
+            scanner.addSourceMapping(new SuffixMapping(".java", Collections.EMPTY_SET));
+            final Collection<File> sourceFiles = scanner.getIncludedSources(sourceDir, null);
 
             final int numSourceFiles = sourceFiles.size();
             fileCount = fileCount + numSourceFiles;
@@ -109,10 +165,10 @@ public class InferMojo extends AbstractMojo {
         } catch (DependencyResolutionRequiredException e) {
             getLog().error(e);
             throw new MojoExecutionException("Unable to get required dependencies to perform Infer check!", e);
+        } catch (InclusionScanException e) {
+            getLog().error(e);
+            throw new MojoExecutionException("Failed to get sources! Cannot complete Infer check", e);
         }
-        //catch (InclusionScanException e) {
-        //    getLog().error(e);
-        // }
     }
 
     /**
@@ -122,18 +178,16 @@ public class InferMojo extends AbstractMojo {
      * @throws MojoExecutionException if the Infer output directory cannot be created
      */
     private File getInferOutputDir() throws MojoExecutionException {
-        final File currentDir = new File(System.getProperty("user.dir"));
-
         // infer output to build dir of project maven was run from
-        final File inferDir = new File(currentDir, "target/infer-out");
+        final File outputDir = new File(inferDir, "infer-out");
         try {
-            FileUtils.forceMkdir(inferDir);
+            FileUtils.forceMkdir(outputDir);
         } catch (final IOException e) {
             getLog().error(e);
             throw new MojoExecutionException("Exception occurred trying to generate output directory for Infer!", e);
         }
 
-        return inferDir;
+        return outputDir;
     }
 
     /**
@@ -211,7 +265,7 @@ public class InferMojo extends AbstractMojo {
                     try {
                         // infer
                         List<String> command = new ArrayList<String>();
-                        command.add("infer");
+                        command.add(inferPath);
                         command.add("-i");
                         command.add("-o");
                         command.add(inferOutputDir.getAbsolutePath());
@@ -310,11 +364,11 @@ public class InferMojo extends AbstractMojo {
     }
 
     /**
-     * Currently unused.
+     * Gets the path to the infer executable; currently unused
      *
      * @return the absolute path to the {@code infer} executable
      */
-    private String getInferPath() {
+    private String getInferPath() throws MojoExecutionException {
         final String path = System.getenv("PATH");
         for (String dir : path.split(System.getProperty("path.separator"))) {
             final File probablyDir = new File(dir);
@@ -326,6 +380,130 @@ public class InferMojo extends AbstractMojo {
             }
         }
 
-        throw new NullPointerException("Cannot find infer on PATH, infer-maven-plugin aborting execution!");
+        return null;
+    }
+
+    /**
+     * Downloads a distrubtion of Infer appropriate for the current operating system or fails if the current
+     * operating system is not supported.
+     * @param inferDownloadDir directory to which to download Infer
+     * @return the path to the executable Infer script
+     * @throws MojoExecutionException if an Exception occurs that should fail execution
+     */
+    private String downloadInfer(File inferDownloadDir) throws MojoExecutionException {
+        getLog().info("Maven-infer-plugin is configured to download Infer. Downloading now.");
+        try {
+            final OperatingSystem system = currentOs();
+            final URL downloadUrl;
+            if (system.equals(OperatingSystem.OSX)) {
+                downloadUrl =
+                        new URL("https://github.com/facebook/infer/releases/download/v0.1.0/infer-osx-v0.1.0.tar.xz");
+            } else if (system.equals(OperatingSystem.LINUX)) {
+                downloadUrl = new URL(
+                        "https://github.com/facebook/infer/releases/download/v0.1.0/infer-linux64-v0.1.0.tar.xz");
+            } else {
+                final String errMsg = String.format(
+                        "Unsupported operating system: %s. Cannot continue Infer analysis.",
+                        System.getProperty("os.name"));
+
+                getLog().error(errMsg);
+                throw new MojoExecutionException(errMsg);
+            }
+            final File download = new File(inferDownloadDir, downloadUrl.getFile());
+
+            // TODO: could make these configurable
+            FileUtils.copyURLToFile(downloadUrl, download, CONNECTION_TIMEOUT, READ_TIMEOUT);
+
+            getLog().info(String.format("Infer downloaded to %s; now extracting.", inferDownloadDir.getAbsolutePath()));
+
+            extract(download, inferDownloadDir);
+
+            getLog().info("Infer has been extracted, continuing with Infer check.");
+
+            final String pattern = "**/bin/infer";
+            final PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
+
+            final Collection<File> files = FileUtils.listFiles(inferDownloadDir, null, true);
+            for (File file : files) {
+                if (matcher.matches(file.toPath())) {
+                    return file.getAbsolutePath();
+                }
+            }
+        } catch (IOException e) {
+            final String errMsg = "Invalid URL: %s! Cannot continue Infer check.";
+            getLog().error(errMsg, e);
+            throw new MojoExecutionException(errMsg, e);
+        }
+        throw new MojoExecutionException("unable to download infer! Aborting execution...");
+    }
+
+    /**
+     * Gets the current operating system, in terms of its relevance to this mojo.
+     *
+     * @return the current operating system or 'UNSUPPORTED'
+     */
+    private OperatingSystem currentOs() {
+        final String os = System.getProperty("os.name").toLowerCase();
+        if (os.indexOf("mac") >= 0) {
+            return OperatingSystem.OSX;
+        } else if (os.indexOf("nix") >= 0 || os.indexOf("nux") >= 0 || os.indexOf("aix") > 0) {
+            return OperatingSystem.LINUX;
+        } else {
+            return OperatingSystem.UNSUPPORTED;
+        }
+    }
+
+    private enum OperatingSystem {
+        OSX,
+        LINUX,
+        UNSUPPORTED;
+    }
+
+    /**
+     * Extracts a given infer.tar.xz file to the given directory.
+     *
+     * @param tarXzToExtract the file to extract
+     * @param inferDownloadDir the directory to extract the file to
+     */
+    private void extract(File tarXzToExtract, File inferDownloadDir) throws IOException {
+
+        final FileInputStream fin = new FileInputStream(tarXzToExtract);
+        final BufferedInputStream in = new BufferedInputStream(fin);
+        final XZCompressorInputStream xzIn = new XZCompressorInputStream(in);
+        final TarArchiveInputStream tarIn = new TarArchiveInputStream(xzIn);
+
+        TarArchiveEntry entry;
+        while ((entry = tarIn.getNextTarEntry()) != null) {
+            final File fileToWrite = new File(inferDownloadDir, entry.getName());
+
+            if (entry.isDirectory()) {
+                FileUtils.forceMkdir(fileToWrite);
+            } else {
+                final BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(fileToWrite));
+                final byte[] buffer = new byte[4096];
+                int n = 0;
+                while (-1 != (n = tarIn.read(buffer))) {
+                    out.write(buffer, 0, n);
+                }
+                out.close();
+            }
+
+            int mode = entry.getMode();
+
+            fileToWrite.setReadable((mode & 0004) != 0, false);
+            fileToWrite.setReadable((mode & 0400) != 0, true);
+
+            fileToWrite.setWritable((mode & 0002) != 0, false);
+            fileToWrite.setWritable((mode & 0200) != 0, true);
+
+            fileToWrite.setExecutable((mode & 0001) != 0, false);
+            fileToWrite.setExecutable((mode & 0100) != 0, true);
+        }
+
+        tarIn.close();
+        xzIn.close();
+        in.close();
+        fin.close();
     }
 }
+
