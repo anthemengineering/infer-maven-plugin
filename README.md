@@ -20,7 +20,7 @@ The maven-infer-plugin has a few properties that can be configured via the plugi
 
 ## Use
 Infer is run every time that the plugin's `infer` goal executes; by default the `infer` goal is bound
-to the verify phase. The plugin prints out a cumulative summary of Infer results for each module, primarly  reporting
+to the verify phase. The plugin prints out a cumulative summary of Infer results for each module, primarily  reporting
 any potential bugs it has detected (currently very similar output to executing `infer` manually).
 
 ## Notes

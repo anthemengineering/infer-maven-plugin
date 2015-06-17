@@ -76,6 +76,33 @@ public class InferMojo extends AbstractMojo {
     // constants for downloading
     private static final int CONNECTION_TIMEOUT = 60000;
     private static final int READ_TIMEOUT = 60000;
+    private static final String LINUX_INFER_DOWNLOAD_URL =
+            "https://github.com/facebook/infer/releases/download/v0.1.0/infer-linux64-v0.1.0.tar.xz";
+
+    private static final String OSX_INFER_DOWNLOAD_URL =
+            "https://github.com/facebook/infer/releases/download/v0.1.0/infer-osx-v0.1.0.tar.xz";
+
+    // repeated error message
+    private static final String EARLY_EXECUTION_TERMINATION_EXCEPTION_MSG =
+            "Problem while waiting for Infer to finish; Infer output may be innacurate.";
+
+    // system environment variable property names
+    private static final String PATH_SEPARATOR = "path.separator";
+    private static final String LINE_SEPARATOR = "line.separator";
+    private static final String USER_DIR = "user.dir";
+    private static final String OS_NAME = "os.name";
+
+    // file names
+    private static final String INFER_BUG_REPORT_FILE_NAME = "bugs.txt";
+    private static final String INFER_DOWNLOAD_DIRETORY_NAME = "infer-download";
+    private static final String DEFAULT_MAVEN_BUILD_DIR_NAME = "target";
+    private static final String INFER_OUTPUT_DIRECTORY_NAME = "infer-out";
+    private static final String JAVAC_OUTPUT_DIRECTORY_NAME = "javacOut";
+    private static final String INFER_CMD_NAME = "infer";
+
+    // misc strings
+    private static final String UTF_8 = "UTF-8";
+    private static final String JAVA_SRC_EXTENSION = ".java";
 
     /**
      * Total number of files analyzed during this build.
@@ -126,15 +153,15 @@ public class InferMojo extends AbstractMojo {
     @Override
     public void execute() throws MojoExecutionException {
         if (inferDir == null) {
-            inferDir = new File(System.getProperty("user.dir"), "target").getAbsolutePath();
+            inferDir = new File(System.getProperty(USER_DIR), DEFAULT_MAVEN_BUILD_DIR_NAME).getAbsolutePath();
         }
 
-        if (inferPath != null && !"infer".equals(inferPath)) {
+        if (inferPath != null && !INFER_CMD_NAME.equals(inferPath)) {
             getLog().info(String.format("Infer path set to: %s", inferPath));
         }
         // check if infer is on the PATH and if not, then download it.
         if (inferPath == null && download) {
-            inferPath = downloadInfer(new File(inferDir, "infer-download"));
+            inferPath = downloadInfer(new File(inferDir, INFER_DOWNLOAD_DIRETORY_NAME));
         } else if (inferPath == null) {
             inferPath = inferCommand;
         }
@@ -151,7 +178,7 @@ public class InferMojo extends AbstractMojo {
 
             final SimpleSourceInclusionScanner scanner = new SimpleSourceInclusionScanner(
                     Collections.singleton("**/*.java"), Collections.<String>emptySet());
-            scanner.addSourceMapping(new SuffixMapping(".java", Collections.<String>emptySet()));
+            scanner.addSourceMapping(new SuffixMapping(JAVA_SRC_EXTENSION, Collections.<String>emptySet()));
             final Collection<File> sourceFiles = scanner.getIncludedSources(sourceDir, null);
 
             final int numSourceFiles = sourceFiles.size();
@@ -179,7 +206,7 @@ public class InferMojo extends AbstractMojo {
      */
     private File getInferOutputDir() throws MojoExecutionException {
         // infer output to build dir of project maven was run from
-        final File outputDir = new File(inferDir, "infer-out");
+        final File outputDir = new File(inferDir, INFER_OUTPUT_DIRECTORY_NAME);
         try {
             FileUtils.forceMkdir(outputDir);
         } catch (final IOException e) {
@@ -196,7 +223,7 @@ public class InferMojo extends AbstractMojo {
      * @param numSourceFiles number of source files analyzed in this module
      */
     private void reportResults(File inferOutputDir, int numSourceFiles) {
-        final File bugsFile = new File(inferOutputDir, "bugs.txt");
+        final File bugsFile = new File(inferOutputDir, INFER_BUG_REPORT_FILE_NAME);
         getLog().info("Infer output can be located at: " + inferOutputDir);
         getLog().info("");
         getLog().info("Results of Infer check:");
@@ -204,8 +231,8 @@ public class InferMojo extends AbstractMojo {
         if (bugsFile.exists()) {
             try {
                 final String bugs;
-                bugs = FileUtils.readFileToString(bugsFile, "UTF-8");
-                getLog().info(System.getProperty("line.separator") + System.getProperty("line.separator") + bugs);
+                bugs = FileUtils.readFileToString(bugsFile, UTF_8);
+                getLog().info(System.getProperty(LINE_SEPARATOR) + System.getProperty(LINE_SEPARATOR) + bugs);
             } catch (final IOException e) {
                 getLog().error(
                         String.format(
@@ -239,11 +266,11 @@ public class InferMojo extends AbstractMojo {
             final String classpath, final File inferOutputDir, Collection<File> sourceFiles, int numSourceFiles)
             throws MojoExecutionException {
         // temporary directory for storing .class files created by {@code javac}; placed in build directory
-        final File buildTmpDir = new File(project.getBuild().getDirectory(), "javacOut");
+        final File buildTmpDir = new File(project.getBuild().getDirectory(), JAVAC_OUTPUT_DIRECTORY_NAME);
         try {
             FileUtils.forceMkdir(buildTmpDir);
         } catch (final IOException e) {
-            final String errMsg = String.format("Unable to temp directory %s!", buildTmpDir.getAbsolutePath());
+            final String errMsg = String.format("Unable to make temp directory %s!", buildTmpDir.getAbsolutePath());
             getLog().error(errMsg, e);
             throw new MojoExecutionException(errMsg, e);
         }
@@ -289,9 +316,12 @@ public class InferMojo extends AbstractMojo {
 
                             InputStreamReader isr = null;
                             BufferedReader br = null;
-                            final InputStream procInputStream = proc.getInputStream();
+                            InputStream pis = null;
+
                             try {
-                                isr = new InputStreamReader(procInputStream);
+                                pis = proc.getInputStream();
+
+                                isr = new InputStreamReader(pis);
                                 br = new BufferedReader(isr);
                                 String line = null;
                                 while ((line = br.readLine()) != null) {
@@ -306,8 +336,13 @@ public class InferMojo extends AbstractMojo {
                                 if (isr != null) {
                                     isr.close();
                                 }
+
                                 if (br != null) {
                                     br.close();
+                                }
+
+                                if (pis != null) {
+                                    pis.close();
                                 }
                             }
                         } else {
@@ -322,7 +357,7 @@ public class InferMojo extends AbstractMojo {
                         getLog().error(
                                 "Exception occurred while trying to perform Infer execution; output not complete", e);
                     } catch (final InterruptedException e) {
-                        getLog().error("Problem while waiting for Infer to finish; Infer output may be innacurate.", e);
+                        getLog().error(EARLY_EXECUTION_TERMINATION_EXCEPTION_MSG, e);
                     } finally {
                         try {
                             // currently they all fail, although java bugs are still reported
@@ -343,7 +378,7 @@ public class InferMojo extends AbstractMojo {
         try {
             doneSignal.await();
         } catch (final InterruptedException e) {
-            getLog().error("Problem while waiting for Infer to finish; Infer output may be innacurate.", e);
+            getLog().error(EARLY_EXECUTION_TERMINATION_EXCEPTION_MSG, e);
         }
     }
 
@@ -397,7 +432,7 @@ public class InferMojo extends AbstractMojo {
      */
     private static String getInferPath() {
         final String path = System.getenv("PATH");
-        for (final String dir : path.split(System.getProperty("path.separator"))) {
+        for (final String dir : path.split(System.getProperty(PATH_SEPARATOR))) {
             final File probablyDir = new File(dir);
             if (probablyDir.isDirectory()) {
                 final File maybeInfer = new File(probablyDir, "infer");
@@ -423,15 +458,13 @@ public class InferMojo extends AbstractMojo {
             final OperatingSystem system = currentOs();
             final URL downloadUrl;
             if (system == OperatingSystem.OSX) {
-                downloadUrl =
-                        new URL("https://github.com/facebook/infer/releases/download/v0.1.0/infer-osx-v0.1.0.tar.xz");
+                downloadUrl = new URL(OSX_INFER_DOWNLOAD_URL);
             } else if (system == OperatingSystem.LINUX) {
-                downloadUrl = new URL(
-                        "https://github.com/facebook/infer/releases/download/v0.1.0/infer-linux64-v0.1.0.tar.xz");
+                downloadUrl = new URL(LINUX_INFER_DOWNLOAD_URL);
             } else {
                 final String errMsg = String.format(
                         "Unsupported operating system: %s. Cannot continue Infer analysis.",
-                        System.getProperty("os.name"));
+                        System.getProperty(OS_NAME));
 
                 getLog().error(errMsg);
                 throw new MojoExecutionException(errMsg);
@@ -449,7 +482,7 @@ public class InferMojo extends AbstractMojo {
 
             final Collection<File> files = FileUtils.listFiles(inferDownloadDir, null, true);
             for (final File file : files) {
-                if ("infer".equals(file.getName()) && "bin".equals(file.getParentFile().getName())) {
+                if (INFER_CMD_NAME.equals(file.getName()) && "bin".equals(file.getParentFile().getName())) {
                     return file.getAbsolutePath();
                 }
             }
@@ -467,7 +500,7 @@ public class InferMojo extends AbstractMojo {
      * @return the current operating system or 'UNSUPPORTED'
      */
     private static OperatingSystem currentOs() {
-        final String os = System.getProperty("os.name").toLowerCase();
+        final String os = System.getProperty(OS_NAME).toLowerCase();
         if (os.contains("mac")) {
             return OperatingSystem.OSX;
         } else if (os.contains("nix") || os.contains("nux") || os.indexOf("aix") > 0) {
