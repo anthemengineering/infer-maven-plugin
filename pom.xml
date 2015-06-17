@@ -20,10 +20,28 @@ limitations under the License.
 
     <groupId>com.anthemengineering</groupId>
     <artifactId>infer-maven-plugin</artifactId>
-    <packaging>maven-plugin</packaging>
     <version>0.1-SNAPSHOT</version>
+    <packaging>maven-plugin</packaging>
 
-    <name>infer-maven-plugin</name>
+    <name>Infer Maven Plugin</name>
+    <description>This plugin-in runs the Facebook Infer static analysis tool.</description>
+    <url>https://github.com/anthemengineering/infer-maven-plugin/</url>
+
+    <licenses>
+        <license>
+            <name>The Apache License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>S. Alex Szebenyi</name>
+            <email>aszebenyi@anthemengineering.com</email>
+            <organization>Anthem Engineering LLC</organization>
+            <organizationUrl>http://www.anthemengineering.com</organizationUrl>
+        </developer>
+    </developers>
 
     <scm>
         <connection>scm:git:https://github.com/anthemengineering/infer-maven-plugin.git</connection>
@@ -66,7 +84,6 @@ limitations under the License.
             <artifactId>xz</artifactId>
             <version>1.5</version>
         </dependency>
-
     </dependencies>
 
     <build>
