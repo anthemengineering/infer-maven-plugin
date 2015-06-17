@@ -49,6 +49,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
@@ -128,7 +129,7 @@ public class InferMojo extends AbstractMojo {
             inferDir = new File(System.getProperty("user.dir"), "target").getAbsolutePath();
         }
 
-        if (inferPath != null && !inferPath.equals("infer")) {
+        if (inferPath != null && !"infer".equals(inferPath)) {
             getLog().info(String.format("Infer path set to: %s", inferPath));
         }
         // check if infer is on the PATH and if not, then download it.
@@ -142,15 +143,15 @@ public class InferMojo extends AbstractMojo {
             // get source directory, if it doesn't exist then we're done
             final File sourceDir = new File(project.getBuild().getSourceDirectory());
 
-            if (sourceDir == null || !sourceDir.exists()) {
+            if (!sourceDir.exists()) {
                 return;
             }
 
             final File inferOutputDir = getInferOutputDir();
 
             final SimpleSourceInclusionScanner scanner = new SimpleSourceInclusionScanner(
-                    Collections.singleton("**/*.java"), Collections.EMPTY_SET);
-            scanner.addSourceMapping(new SuffixMapping(".java", Collections.EMPTY_SET));
+                    Collections.singleton("**/*.java"), Collections.<String>emptySet());
+            scanner.addSourceMapping(new SuffixMapping(".java", Collections.<String>emptySet()));
             final Collection<File> sourceFiles = scanner.getIncludedSources(sourceDir, null);
 
             final int numSourceFiles = sourceFiles.size();
@@ -161,10 +162,10 @@ public class InferMojo extends AbstractMojo {
             completeInferExecutions(classpath, inferOutputDir, sourceFiles, numSourceFiles);
 
             reportResults(inferOutputDir, numSourceFiles);
-        } catch (DependencyResolutionRequiredException e) {
+        } catch (final DependencyResolutionRequiredException e) {
             getLog().error(e);
             throw new MojoExecutionException("Unable to get required dependencies to perform Infer check!", e);
-        } catch (InclusionScanException e) {
+        } catch (final InclusionScanException e) {
             getLog().error(e);
             throw new MojoExecutionException("Failed to get sources! Cannot complete Infer check", e);
         }
@@ -196,7 +197,7 @@ public class InferMojo extends AbstractMojo {
      */
     private void reportResults(File inferOutputDir, int numSourceFiles) {
         final File bugsFile = new File(inferOutputDir, "bugs.txt");
-        getLog().info("Infer output can be located at: " + inferOutputDir.toString());
+        getLog().info("Infer output can be located at: " + inferOutputDir);
         getLog().info("");
         getLog().info("Results of Infer check:");
 
@@ -205,7 +206,7 @@ public class InferMojo extends AbstractMojo {
                 final String bugs;
                 bugs = FileUtils.readFileToString(bugsFile, "UTF-8");
                 getLog().info(System.getProperty("line.separator") + System.getProperty("line.separator") + bugs);
-            } catch (IOException e) {
+            } catch (final IOException e) {
                 getLog().error(
                         String.format(
                                 "Exception occurred trying to read bugs report at: %s, no bugs will be reported.",
@@ -220,8 +221,8 @@ public class InferMojo extends AbstractMojo {
                         "Infer review complete; %s files were analyzed for this module, "
                                 + "%s files have been analyzed so far, in total.", numSourceFiles, fileCount));
 
-        //TODO: consider adding this when analyze doesnt fail.
-        //printFailedChecks();
+        // TODO: consider adding this when analyze doesn't fail.
+        // printFailedChecks();
         getLog().info("");
     }
 
@@ -241,7 +242,7 @@ public class InferMojo extends AbstractMojo {
         final File buildTmpDir = new File(project.getBuild().getDirectory(), "javacOut");
         try {
             FileUtils.forceMkdir(buildTmpDir);
-        } catch (IOException e) {
+        } catch (final IOException e) {
             final String errMsg = String.format("Unable to temp directory %s!", buildTmpDir.getAbsolutePath());
             getLog().error(errMsg, e);
             throw new MojoExecutionException(errMsg, e);
@@ -263,7 +264,7 @@ public class InferMojo extends AbstractMojo {
 
                     try {
                         // infer
-                        List<String> command = new ArrayList<String>();
+                        final List<String> command = new ArrayList<String>();
                         command.add(inferPath);
                         command.add("-i");
                         command.add("-o");
@@ -302,8 +303,12 @@ public class InferMojo extends AbstractMojo {
                                                 "Error writing process output for file: %s.",
                                                 sourceFile.getAbsolutePath()), e);
                             } finally {
-                                isr.close();
-                                br.close();
+                                if (isr != null) {
+                                    isr.close();
+                                }
+                                if (br != null) {
+                                    br.close();
+                                }
                             }
                         } else {
                             // no logging.
@@ -321,10 +326,10 @@ public class InferMojo extends AbstractMojo {
                     } finally {
                         try {
                             // currently they all fail, although java bugs are still reported
-                            if (proc.exitValue() != 0) {
+                            if (proc != null && proc.exitValue() != 0) {
                                 FAILED_CHECKS.put(sourceFile, proc.exitValue());
                             }
-                        } catch (Exception e) {
+                        } catch (final Exception e) {
                             FAILED_CHECKS.put(sourceFile, -1);
                         }
                         doneSignal.countDown();
@@ -349,7 +354,7 @@ public class InferMojo extends AbstractMojo {
         if (!FAILED_CHECKS.isEmpty()) {
             getLog().info("The following checks failed: ");
 
-            for (Map.Entry<File, Integer> entry : FAILED_CHECKS.entrySet()) {
+            for (final Entry<File, Integer> entry : FAILED_CHECKS.entrySet()) {
                 getLog().info(
                         String.format(
                                 "Class: %s: Exit code: %s.", entry.getKey().getPath(), entry.getValue()));
@@ -365,8 +370,8 @@ public class InferMojo extends AbstractMojo {
      * @throws DependencyResolutionRequiredException
      */
     private String getRuntimeAndCompileClasspath() throws DependencyResolutionRequiredException {
-        final List<String> compileClasspathElements = project.getCompileClasspathElements();
-        final List<String> runtimeClasspathElements = project.getRuntimeClasspathElements();
+        final List compileClasspathElements = project.getCompileClasspathElements();
+        final List runtimeClasspathElements = project.getRuntimeClasspathElements();
 
         final Set<String> classPathElements = new HashSet<String>();
         classPathElements.addAll(compileClasspathElements);
@@ -374,7 +379,7 @@ public class InferMojo extends AbstractMojo {
 
         final StringBuilder classpath = new StringBuilder();
         boolean first = true;
-        for (String element : classPathElements) {
+        for (final String element : classPathElements) {
             if (!first) {
                 classpath.append(':');
             }
@@ -390,12 +395,12 @@ public class InferMojo extends AbstractMojo {
      *
      * @return the absolute path to the {@code infer} executable
      */
-    private String getInferPath() throws MojoExecutionException {
+    private static String getInferPath() {
         final String path = System.getenv("PATH");
-        for (String dir : path.split(System.getProperty("path.separator"))) {
+        for (final String dir : path.split(System.getProperty("path.separator"))) {
             final File probablyDir = new File(dir);
             if (probablyDir.isDirectory()) {
-                File maybeInfer = new File(probablyDir, "infer");
+                final File maybeInfer = new File(probablyDir, "infer");
                 if (maybeInfer.exists() && maybeInfer.isFile()) {
                     return maybeInfer.getAbsolutePath();
                 }
@@ -406,7 +411,7 @@ public class InferMojo extends AbstractMojo {
     }
 
     /**
-     * Downloads a distrubtion of Infer appropriate for the current operating system or fails if the current
+     * Downloads a distribution of Infer appropriate for the current operating system or fails if the current
      * operating system is not supported.
      * @param inferDownloadDir directory to which to download Infer
      * @return the path to the executable Infer script
@@ -417,10 +422,10 @@ public class InferMojo extends AbstractMojo {
         try {
             final OperatingSystem system = currentOs();
             final URL downloadUrl;
-            if (system.equals(OperatingSystem.OSX)) {
+            if (system == OperatingSystem.OSX) {
                 downloadUrl =
                         new URL("https://github.com/facebook/infer/releases/download/v0.1.0/infer-osx-v0.1.0.tar.xz");
-            } else if (system.equals(OperatingSystem.LINUX)) {
+            } else if (system == OperatingSystem.LINUX) {
                 downloadUrl = new URL(
                         "https://github.com/facebook/infer/releases/download/v0.1.0/infer-linux64-v0.1.0.tar.xz");
             } else {
@@ -431,24 +436,24 @@ public class InferMojo extends AbstractMojo {
                 getLog().error(errMsg);
                 throw new MojoExecutionException(errMsg);
             }
-            final File download = new File(inferDownloadDir, downloadUrl.getFile());
+            final File downloadedFile = new File(inferDownloadDir, downloadUrl.getFile());
 
             // TODO: could make these configurable
-            FileUtils.copyURLToFile(downloadUrl, download, CONNECTION_TIMEOUT, READ_TIMEOUT);
+            FileUtils.copyURLToFile(downloadUrl, downloadedFile, CONNECTION_TIMEOUT, READ_TIMEOUT);
 
             getLog().info(String.format("Infer downloaded to %s; now extracting.", inferDownloadDir.getAbsolutePath()));
 
-            extract(download, inferDownloadDir);
+            extract(downloadedFile, inferDownloadDir);
 
             getLog().info("Infer has been extracted, continuing with Infer check.");
 
             final Collection<File> files = FileUtils.listFiles(inferDownloadDir, null, true);
-            for (File file : files) {
-                if (file.getName().equals("infer") && file.getParentFile().getName().equals("bin")) {
+            for (final File file : files) {
+                if ("infer".equals(file.getName()) && "bin".equals(file.getParentFile().getName())) {
                     return file.getAbsolutePath();
                 }
             }
-        } catch (IOException e) {
+        } catch (final IOException e) {
             final String errMsg = "Invalid URL: %s! Cannot continue Infer check.";
             getLog().error(errMsg, e);
             throw new MojoExecutionException(errMsg, e);
@@ -457,15 +462,15 @@ public class InferMojo extends AbstractMojo {
     }
 
     /**
-     * Gets the current operating system, in terms of its relevance to this mojo.
+     * Gets the current operating system, in terms of its relevance to this Mojo.
      *
      * @return the current operating system or 'UNSUPPORTED'
      */
-    private OperatingSystem currentOs() {
+    private static OperatingSystem currentOs() {
         final String os = System.getProperty("os.name").toLowerCase();
-        if (os.indexOf("mac") >= 0) {
+        if (os.contains("mac")) {
             return OperatingSystem.OSX;
-        } else if (os.indexOf("nix") >= 0 || os.indexOf("nux") >= 0 || os.indexOf("aix") > 0) {
+        } else if (os.contains("nix") || os.contains("nux") || os.indexOf("aix") > 0) {
             return OperatingSystem.LINUX;
         } else {
             return OperatingSystem.UNSUPPORTED;
@@ -475,7 +480,7 @@ public class InferMojo extends AbstractMojo {
     private enum OperatingSystem {
         OSX,
         LINUX,
-        UNSUPPORTED;
+        UNSUPPORTED
     }
 
     /**
@@ -484,45 +489,62 @@ public class InferMojo extends AbstractMojo {
      * @param tarXzToExtract the file to extract
      * @param inferDownloadDir the directory to extract the file to
      */
-    private void extract(File tarXzToExtract, File inferDownloadDir) throws IOException {
+    private static void extract(File tarXzToExtract, File inferDownloadDir) throws IOException {
 
-        final FileInputStream fin = new FileInputStream(tarXzToExtract);
-        final BufferedInputStream in = new BufferedInputStream(fin);
-        final XZCompressorInputStream xzIn = new XZCompressorInputStream(in);
-        final TarArchiveInputStream tarIn = new TarArchiveInputStream(xzIn);
+        FileInputStream fin = null;
+        BufferedInputStream in = null;
+        XZCompressorInputStream xzIn = null;
+        TarArchiveInputStream tarIn = null;
 
-        TarArchiveEntry entry;
-        while ((entry = tarIn.getNextTarEntry()) != null) {
-            final File fileToWrite = new File(inferDownloadDir, entry.getName());
+        try {
+            fin = new FileInputStream(tarXzToExtract);
+            in = new BufferedInputStream(fin);
+            xzIn = new XZCompressorInputStream(in);
+            tarIn = new TarArchiveInputStream(xzIn);
 
-            if (entry.isDirectory()) {
-                FileUtils.forceMkdir(fileToWrite);
-            } else {
-                final BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(fileToWrite));
-                final byte[] buffer = new byte[4096];
-                int n = 0;
-                while (-1 != (n = tarIn.read(buffer))) {
-                    out.write(buffer, 0, n);
+            TarArchiveEntry entry;
+            while ((entry = tarIn.getNextTarEntry()) != null) {
+                final File fileToWrite = new File(inferDownloadDir, entry.getName());
+
+                if (entry.isDirectory()) {
+                    FileUtils.forceMkdir(fileToWrite);
+                } else {
+                    final BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(fileToWrite));
+                    final byte[] buffer = new byte[4096];
+                    int n = 0;
+                    while (-1 != (n = tarIn.read(buffer))) {
+                        out.write(buffer, 0, n);
+                    }
+                    out.close();
                 }
-                out.close();
+
+                // assign file permissions
+                final int mode = entry.getMode();
+
+                fileToWrite.setReadable((mode & 0004) != 0, false);
+                fileToWrite.setReadable((mode & 0400) != 0, true);
+                fileToWrite.setWritable((mode & 0002) != 0, false);
+                fileToWrite.setWritable((mode & 0200) != 0, true);
+                fileToWrite.setExecutable((mode & 0001) != 0, false);
+                fileToWrite.setExecutable((mode & 0100) != 0, true);
+            }
+        } finally {
+            if (tarIn != null) {
+                tarIn.close();
             }
 
-            int mode = entry.getMode();
+            if (xzIn != null) {
+                xzIn.close();
+            }
 
-            fileToWrite.setReadable((mode & 0004) != 0, false);
-            fileToWrite.setReadable((mode & 0400) != 0, true);
+            if (in != null) {
+                in.close();
+            }
 
-            fileToWrite.setWritable((mode & 0002) != 0, false);
-            fileToWrite.setWritable((mode & 0200) != 0, true);
-
-            fileToWrite.setExecutable((mode & 0001) != 0, false);
-            fileToWrite.setExecutable((mode & 0100) != 0, true);
+            if (fin != null) {
+                fin.close();
+            }
         }
-
-        tarIn.close();
-        xzIn.close();
-        in.close();
-        fin.close();
     }
 }
 
