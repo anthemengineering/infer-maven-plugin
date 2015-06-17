@@ -34,10 +34,13 @@ import org.codehaus.plexus.compiler.util.scan.mapping.SuffixMapping;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -278,11 +281,34 @@ public class InferMojo extends AbstractMojo {
 
                         final ProcessBuilder builder = new ProcessBuilder(command);
                         builder.environment().putAll(System.getenv());
-                        if (consoleOut) {
-                            builder.inheritIO();
-                        }
 
-                        proc = builder.start();
+                        if (consoleOut) {
+                            builder.redirectErrorStream(true);
+                            proc = builder.start();
+
+                            InputStreamReader isr = null;
+                            BufferedReader br = null;
+                            final InputStream procInputStream = proc.getInputStream();
+                            try {
+                                isr = new InputStreamReader(procInputStream);
+                                br = new BufferedReader(isr);
+                                String line = null;
+                                while ((line = br.readLine()) != null) {
+                                    getLog().info(line);
+                                }
+                            } catch (final IOException e) {
+                                getLog().error(
+                                        String.format(
+                                                "Error writing process output for file: %s.",
+                                                sourceFile.getAbsolutePath()), e);
+                            } finally {
+                                isr.close();
+                                br.close();
+                            }
+                        } else {
+                            // no logging.
+                            proc = builder.start();
+                        }
 
                         // NOTE: most/all executions end in failure during analysis, however,
                         // supported java bugs are still reported
@@ -416,10 +442,9 @@ public class InferMojo extends AbstractMojo {
 
             getLog().info("Infer has been extracted, continuing with Infer check.");
 
-
             final Collection<File> files = FileUtils.listFiles(inferDownloadDir, null, true);
             for (File file : files) {
-                if(file.getName().equals("infer") && file.getParentFile().getName().equals("bin")){
+                if (file.getName().equals("infer") && file.getParentFile().getName().equals("bin")) {
                     return file.getAbsolutePath();
                 }
             }
