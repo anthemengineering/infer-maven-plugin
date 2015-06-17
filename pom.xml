@@ -25,6 +25,12 @@ limitations under the License.
 
     <name>infer-maven-plugin</name>
 
+    <scm>
+        <connection>scm:git:https://github.com/anthemengineering/infer-maven-plugin.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com:anthemengineering/infer-maven-plugin.git</developerConnection>
+        <url>https://github.com/anthemengineering/infer-maven-plugin/</url>
+    </scm>
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
