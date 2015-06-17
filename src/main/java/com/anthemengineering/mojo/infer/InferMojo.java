@@ -39,10 +39,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.FileSystems;
-import java.nio.file.PathMatcher;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -126,7 +122,7 @@ public class InferMojo extends AbstractMojo {
     @Override
     public void execute() throws MojoExecutionException {
         if (inferDir == null) {
-            inferDir = Paths.get(System.getProperty("user.dir"), "target").toString();
+            inferDir = new File(System.getProperty("user.dir"), "target").getAbsolutePath();
         }
 
         if (inferPath != null && !inferPath.equals("infer")) {
@@ -155,7 +151,7 @@ public class InferMojo extends AbstractMojo {
             final Collection<File> sourceFiles = scanner.getIncludedSources(sourceDir, null);
 
             final int numSourceFiles = sourceFiles.size();
-            fileCount = fileCount + numSourceFiles;
+            fileCount += numSourceFiles;
 
             final String classpath = getRuntimeAndCompileClasspath();
 
@@ -204,8 +200,8 @@ public class InferMojo extends AbstractMojo {
         if (bugsFile.exists()) {
             try {
                 final String bugs;
-                bugs = FileUtils.readFileToString(bugsFile, StandardCharsets.UTF_8);
-                getLog().info(System.lineSeparator() + System.lineSeparator() + bugs);
+                bugs = FileUtils.readFileToString(bugsFile, "UTF-8");
+                getLog().info(System.getProperty("line.separator") + System.getProperty("line.separator") + bugs);
             } catch (IOException e) {
                 getLog().error(
                         String.format(
@@ -346,7 +342,7 @@ public class InferMojo extends AbstractMojo {
         final List<String> compileClasspathElements = project.getCompileClasspathElements();
         final List<String> runtimeClasspathElements = project.getRuntimeClasspathElements();
 
-        final Set<String> classPathElements = new HashSet();
+        final Set<String> classPathElements = new HashSet<String>();
         classPathElements.addAll(compileClasspathElements);
         classPathElements.addAll(runtimeClasspathElements);
 
@@ -420,12 +416,10 @@ public class InferMojo extends AbstractMojo {
 
             getLog().info("Infer has been extracted, continuing with Infer check.");
 
-            final String pattern = "**/bin/infer";
-            final PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
 
             final Collection<File> files = FileUtils.listFiles(inferDownloadDir, null, true);
             for (File file : files) {
-                if (matcher.matches(file.toPath())) {
+                if(file.getName().equals("infer") && file.getParentFile().getName().equals("bin")){
                     return file.getAbsolutePath();
                 }
             }
