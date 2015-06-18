@@ -52,6 +52,8 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Runs Infer over Java source files in the main source (test sources are ignored). Basic results information of the
@@ -283,98 +285,108 @@ public class InferMojo extends AbstractMojo {
 
         // TODO: a better way to do this may be to determine if there is an entry point that takes a set of source
         //  files and the classpath and use this. @See mvn, inferj and inferlib in the infer repository.
-        for (final File sourceFile : sourceFiles) {
-            final Runnable r = new Runnable() {
-                @Override
-                public void run() {
-                    Process proc = null;
 
-                    try {
-                        // infer
-                        final List<String> command = new ArrayList<String>();
-                        command.add(inferPath);
-                        command.add("-i");
-                        command.add("-o");
-                        command.add(inferOutputDir.getAbsolutePath());
+        ExecutorService pool = null;
+        try {
+            pool = Executors.newFixedThreadPool(4);
 
-                        command.add("--");
+            for (final File sourceFile : sourceFiles) {
+                final Runnable r = new Runnable() {
+                    @Override
+                    public void run() {
+                        Process proc = null;
 
-                        // javac
-                        command.add("javac");
-                        command.add(sourceFile.getAbsolutePath());
-                        command.add("-d");
-                        command.add(buildTmpDir.getAbsolutePath());
-                        command.add("-classpath");
-                        command.add(classpath);
-
-                        final ProcessBuilder builder = new ProcessBuilder(command);
-                        builder.environment().putAll(System.getenv());
-
-                        if (consoleOut) {
-                            builder.redirectErrorStream(true);
-                            proc = builder.start();
-
-                            InputStreamReader isr = null;
-                            BufferedReader br = null;
-                            InputStream pis = null;
-
-                            try {
-                                pis = proc.getInputStream();
-
-                                isr = new InputStreamReader(pis);
-                                br = new BufferedReader(isr);
-                                String line = null;
-                                while ((line = br.readLine()) != null) {
-                                    getLog().info(line);
-                                }
-                            } catch (final IOException e) {
-                                getLog().error(
-                                        String.format(
-                                                "Error writing process output for file: %s.",
-                                                sourceFile.getAbsolutePath()), e);
-                            } finally {
-                                if (isr != null) {
-                                    isr.close();
-                                }
-
-                                if (br != null) {
-                                    br.close();
-                                }
-
-                                if (pis != null) {
-                                    pis.close();
-                                }
-                            }
-                        } else {
-                            // no logging.
-                            proc = builder.start();
-                        }
-
-                        // NOTE: most/all executions end in failure during analysis, however,
-                        // supported java bugs are still reported
-                        proc.waitFor();
-                    } catch (final IOException e) {
-                        getLog().error(
-                                "Exception occurred while trying to perform Infer execution; output not complete", e);
-                    } catch (final InterruptedException e) {
-                        getLog().error(EARLY_EXECUTION_TERMINATION_EXCEPTION_MSG, e);
-                    } finally {
                         try {
-                            // currently they all fail, although java bugs are still reported
-                            if (proc != null && proc.exitValue() != 0) {
-                                FAILED_CHECKS.put(sourceFile, proc.exitValue());
+                            // infer
+                            final List<String> command = new ArrayList<String>();
+                            command.add(inferPath);
+                            command.add("-i");
+                            command.add("-o");
+                            command.add(inferOutputDir.getAbsolutePath());
+
+                            command.add("--");
+
+                            // javac
+                            command.add("javac");
+                            command.add(sourceFile.getAbsolutePath());
+                            command.add("-d");
+                            command.add(buildTmpDir.getAbsolutePath());
+                            command.add("-classpath");
+                            command.add(classpath);
+
+                            final ProcessBuilder builder = new ProcessBuilder(command);
+                            builder.environment().putAll(System.getenv());
+
+                            if (consoleOut) {
+                                builder.redirectErrorStream(true);
+                                proc = builder.start();
+
+                                InputStreamReader isr = null;
+                                BufferedReader br = null;
+                                InputStream pis = null;
+
+                                try {
+                                    pis = proc.getInputStream();
+
+                                    isr = new InputStreamReader(pis);
+                                    br = new BufferedReader(isr);
+                                    String line = null;
+                                    while ((line = br.readLine()) != null) {
+                                        getLog().info(line);
+                                    }
+                                } catch (final IOException e) {
+                                    getLog().error(
+                                            String.format(
+                                                    "Error writing process output for file: %s.", sourceFile
+                                                            .getAbsolutePath()), e);
+                                } finally {
+                                    if (isr != null) {
+                                        isr.close();
+                                    }
+
+                                    if (br != null) {
+                                        br.close();
+                                    }
+
+                                    if (pis != null) {
+                                        pis.close();
+                                    }
+                                }
+                            } else {
+                                // no logging.
+                                proc = builder.start();
                             }
-                        } catch (final Exception e) {
-                            FAILED_CHECKS.put(sourceFile, -1);
+
+                            // NOTE: most/all executions end in failure during analysis, however,
+                            // supported java bugs are still reported
+                            proc.waitFor();
+                        } catch (final IOException e) {
+                            getLog().error(
+                                    "Exception occurred while trying to perform Infer execution; output not complete"
+                                            + "", e);
+                        } catch (final InterruptedException e) {
+                            getLog().error(EARLY_EXECUTION_TERMINATION_EXCEPTION_MSG, e);
+                        } finally {
+                            try {
+                                // currently they all fail, although java bugs are still reported
+                                if (proc != null && proc.exitValue() != 0) {
+                                    FAILED_CHECKS.put(sourceFile, proc.exitValue());
+                                }
+                            } catch (final Exception e) {
+                                FAILED_CHECKS.put(sourceFile, -1);
+                            }
+                            doneSignal.countDown();
                         }
-                        doneSignal.countDown();
                     }
-                }
-            };
+                };
 
-            new Thread(r).start();
+                pool.submit(r);
+            }
+        }finally{
+            if(pool != null) {
+                pool.shutdown();
+            }
         }
-
         try {
             doneSignal.await();
         } catch (final InterruptedException e) {
