@@ -30,9 +30,9 @@ any potential bugs it has detected (currently very similar output to executing `
 
 ```xml
 <plugin>
-    <groupId>com.anthemengineering</groupId>
+    <groupId>com.anthemengineering.mojo</groupId>
     <artifactId>infer-maven-plugin</artifactId>
-    <version>0.1-SNAPSHOT</version>
+    <version>0.1.0-SNAPSHOT</version>
     <configuration>
         <consoleOut>false</consoleOut>
     </configuration>
@@ -51,7 +51,7 @@ any potential bugs it has detected (currently very similar output to executing `
 ## Example output
 
 ```
-[INFO] --- infer-maven-plugin:0.1-SNAPSHOT:infer (infer) @ my-project ---
+[INFO] --- infer-maven-plugin:0.1.0-SNAPSHOT:infer (infer) @ my-project ---
 [INFO] Infer output can be located at: /Users/me/myprojects/my-project/target/infer-out
 [INFO]
 [INFO] Results of Infer check:
