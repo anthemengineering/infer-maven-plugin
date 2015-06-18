@@ -20,7 +20,7 @@ limitations under the License.
 
     <groupId>com.anthemengineering.mojo</groupId>
     <artifactId>infer-maven-plugin</artifactId>
-    <version>0.1-SNAPSHOT</version>
+    <version>0.1.0-SNAPSHOT</version>
     <packaging>maven-plugin</packaging>
 
     <name>Infer Maven Plugin</name>
