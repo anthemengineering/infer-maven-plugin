@@ -68,9 +68,6 @@ import java.util.concurrent.Executors;
  * Java 8 is not yet supported by Infer.
  * </p>
  * The {@code PATH} is searched for the Infer script/command; if it is not found, Infer will be downloaded.
- * </p>
- * Before this plugin executes, it is recommended that a {@code mvn clean} takes
- * place.
  */
 @Mojo(name = "infer", defaultPhase = LifecyclePhase.VERIFY,
         requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME, threadSafe = true)
