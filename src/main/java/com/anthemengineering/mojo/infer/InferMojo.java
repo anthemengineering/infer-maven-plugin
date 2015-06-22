@@ -334,8 +334,8 @@ public class InferMojo extends AbstractMojo {
                                 } catch (final IOException e) {
                                     getLog().error(
                                             String.format(
-                                                    "Error writing process output for file: %s.", sourceFile
-                                                            .getAbsolutePath()), e);
+                                                    "Error writing process output for file: %s.",
+                                                    sourceFile.getAbsolutePath()), e);
                                 } finally {
                                     if (isr != null) {
                                         isr.close();
@@ -379,8 +379,8 @@ public class InferMojo extends AbstractMojo {
 
                 pool.submit(r);
             }
-        }finally{
-            if(pool != null) {
+        } finally {
+            if (pool != null) {
                 pool.shutdown();
             }
         }
@@ -552,13 +552,19 @@ public class InferMojo extends AbstractMojo {
                 if (entry.isDirectory()) {
                     FileUtils.forceMkdir(fileToWrite);
                 } else {
-                    final BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(fileToWrite));
-                    final byte[] buffer = new byte[4096];
-                    int n = 0;
-                    while (-1 != (n = tarIn.read(buffer))) {
-                        out.write(buffer, 0, n);
+                    BufferedOutputStream out = null;
+                    try {
+                        out = new BufferedOutputStream(new FileOutputStream(fileToWrite));
+                        final byte[] buffer = new byte[4096];
+                        int n = 0;
+                        while (-1 != (n = tarIn.read(buffer))) {
+                            out.write(buffer, 0, n);
+                        }
+                    } finally {
+                        if (out != null) {
+                            out.close();
+                        }
                     }
-                    out.close();
                 }
 
                 // assign file permissions
@@ -574,18 +580,6 @@ public class InferMojo extends AbstractMojo {
         } finally {
             if (tarIn != null) {
                 tarIn.close();
-            }
-
-            if (xzIn != null) {
-                xzIn.close();
-            }
-
-            if (in != null) {
-                in.close();
-            }
-
-            if (fin != null) {
-                fin.close();
             }
         }
     }
