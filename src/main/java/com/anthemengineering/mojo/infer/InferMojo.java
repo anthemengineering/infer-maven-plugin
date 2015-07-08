@@ -481,6 +481,7 @@ public class InferMojo extends AbstractMojo {
                 getLog().error(errMsg);
                 throw new MojoExecutionException(errMsg);
             }
+            getLog().info(String.format("Downloading: %s", downloadUrl.toString()));
             final File downloadedFile = new File(inferDownloadDir, downloadUrl.getFile());
 
             // TODO: could make these configurable
@@ -499,7 +500,7 @@ public class InferMojo extends AbstractMojo {
                 }
             }
         } catch (final IOException e) {
-            final String errMsg = "Invalid URL: %s! Cannot continue Infer check.";
+            final String errMsg = "Invalid URL! Cannot continue Infer check.";
             getLog().error(errMsg, e);
             throw new MojoExecutionException(errMsg, e);
         }
