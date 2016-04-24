@@ -17,6 +17,7 @@ The maven-infer-plugin has a few properties that can be configured via the plugi
 - download : `false` if you do not want the plugin to download infer. It will attempt to use a local copy instead. (default: `true`)
 - commandPath : path to the Infer executable/script. (default : `infer` - naively assumes that infer has been made available by adding it to the `PATH` environment variable.)
 - inferDir : directory where Infer output will be placed. (default : `target` in the directory where maven is run from)
+- downloadUrl : URL from which to download Infer. If not specified, a default URL will be used based on the operating system in use.
 
 ## Use
 Infer is run every time that the plugin's `infer` goal executes; by default the `infer` goal is bound
