@@ -59,14 +59,14 @@ import java.util.concurrent.Executors;
  * Runs Infer over Java source files in the main source (test sources are ignored). Basic results information of the
  * Infer check is printed to the console and the output of infer is printed to {@code target/infer-out} in the
  * project Maven is run from.
- *</p>
+ * <p>
  * For each source file, an execution of {@code infer -i -o [execution_dir/target/] -- javac [source_file.java]} is run.
- *</p>
+ * <p>
  * If the directory Maven is run from is the parent of a multi module project, Infer results will continue to
  * accumulate in {@code target/infer-out/} as each module is built.
- * </p>
+ * <p>
  * Java 8 is not yet supported by Infer.
- * </p>
+ * <p>
  * The {@code PATH} is searched for the Infer script/command; if it is not found, Infer will be downloaded.
  */
 @Mojo(name = "infer", defaultPhase = LifecyclePhase.VERIFY,
