@@ -77,10 +77,10 @@ public class InferMojo extends AbstractMojo {
     private static final int CONNECTION_TIMEOUT = 60000;
     private static final int READ_TIMEOUT = 60000;
     private static final String LINUX_INFER_DOWNLOAD_URL =
-            "https://github.com/facebook/infer/releases/download/v0.1.0/infer-linux64-v0.1.0.tar.xz";
+            "https://github.com/anthemengineering/infer-maven-plugin/releases/download/infer-maven-plugin-0.1.0/infer-0.1.1-bin-linux64.tar.xz";
 
     private static final String OSX_INFER_DOWNLOAD_URL =
-            "https://github.com/facebook/infer/releases/download/v0.1.0/infer-osx-v0.1.0.tar.xz";
+            "https://github.com/anthemengineering/infer-maven-plugin/releases/download/infer-maven-plugin-0.1.0/infer-0.1.1-bin-osx.tar.xz";
 
     // repeated error message
     private static final String EARLY_EXECUTION_TERMINATION_EXCEPTION_MSG =
