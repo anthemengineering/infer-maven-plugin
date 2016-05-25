@@ -41,6 +41,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -59,18 +60,15 @@ import java.util.concurrent.Executors;
  * Runs Infer over Java source files in the main source (test sources are ignored). Basic results information of the
  * Infer check is printed to the console and the output of infer is printed to {@code target/infer-out} in the
  * project Maven is run from.
- *</p>
+ * <p>
  * For each source file, an execution of {@code infer -i -o [execution_dir/target/] -- javac [source_file.java]} is run.
- *</p>
+ * <p>
  * If the directory Maven is run from is the parent of a multi module project, Infer results will continue to
  * accumulate in {@code target/infer-out/} as each module is built.
- * </p>
+ * <p>
  * Java 8 is not yet supported by Infer.
- * </p>
+ * <p>
  * The {@code PATH} is searched for the Infer script/command; if it is not found, Infer will be downloaded.
- * </p>
- * Before this plugin executes, it is recommended that a {@code mvn clean} takes
- * place.
  */
 @Mojo(name = "infer", defaultPhase = LifecyclePhase.VERIFY,
         requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME, threadSafe = true)
@@ -79,10 +77,10 @@ public class InferMojo extends AbstractMojo {
     private static final int CONNECTION_TIMEOUT = 60000;
     private static final int READ_TIMEOUT = 60000;
     private static final String LINUX_INFER_DOWNLOAD_URL =
-            "https://github.com/facebook/infer/releases/download/v0.1.0/infer-linux64-v0.1.0.tar.xz";
+            "https://github.com/anthemengineering/infer-maven-plugin/releases/download/infer-maven-plugin-0.1.0/infer-0.1.1-bin-linux64.tar.xz";
 
     private static final String OSX_INFER_DOWNLOAD_URL =
-            "https://github.com/facebook/infer/releases/download/v0.1.0/infer-osx-v0.1.0.tar.xz";
+            "https://github.com/anthemengineering/infer-maven-plugin/releases/download/infer-maven-plugin-0.1.0/infer-0.1.1-bin-osx.tar.xz";
 
     // repeated error message
     private static final String EARLY_EXECUTION_TERMINATION_EXCEPTION_MSG =
@@ -132,6 +130,13 @@ public class InferMojo extends AbstractMojo {
      */
     @Parameter(property = "infer.download", defaultValue = "true")
     private boolean download;
+
+    /**
+     * URL from which to download Infer. Overrides defaults; if not specified, Infer is downloaded from the default URL
+     * for the current operating system (Linux or MacOS X).
+     */
+    @Parameter(property = "infer.downloadUrl")
+    private String downloadUrl;
 
     /**
      * Path to the infer executable/script; or by default {@code infer}, which works when the infer directory has
@@ -337,8 +342,8 @@ public class InferMojo extends AbstractMojo {
                                 } catch (final IOException e) {
                                     getLog().error(
                                             String.format(
-                                                    "Error writing process output for file: %s.", sourceFile
-                                                            .getAbsolutePath()), e);
+                                                    "Error writing process output for file: %s.",
+                                                    sourceFile.getAbsolutePath()), e);
                                 } finally {
                                     if (isr != null) {
                                         isr.close();
@@ -382,8 +387,8 @@ public class InferMojo extends AbstractMojo {
 
                 pool.submit(r);
             }
-        }finally{
-            if(pool != null) {
+        } finally {
+            if (pool != null) {
                 pool.shutdown();
             }
         }
@@ -466,13 +471,16 @@ public class InferMojo extends AbstractMojo {
      */
     private String downloadInfer(File inferDownloadDir) throws MojoExecutionException {
         getLog().info("Maven-infer-plugin is configured to download Infer. Downloading now.");
+        URL url = null;
+
         try {
             final OperatingSystem system = currentOs();
-            final URL downloadUrl;
-            if (system == OperatingSystem.OSX) {
-                downloadUrl = new URL(OSX_INFER_DOWNLOAD_URL);
+            if(downloadUrl != null){
+                url = new URL(downloadUrl);
+            } else if (system == OperatingSystem.OSX) {
+                url = new URL(OSX_INFER_DOWNLOAD_URL);
             } else if (system == OperatingSystem.LINUX) {
-                downloadUrl = new URL(LINUX_INFER_DOWNLOAD_URL);
+                url = new URL(LINUX_INFER_DOWNLOAD_URL);
             } else {
                 final String errMsg = String.format(
                         "Unsupported operating system: %s. Cannot continue Infer analysis.",
@@ -481,11 +489,12 @@ public class InferMojo extends AbstractMojo {
                 getLog().error(errMsg);
                 throw new MojoExecutionException(errMsg);
             }
+
             getLog().info(String.format("Downloading: %s", downloadUrl.toString()));
-            final File downloadedFile = new File(inferDownloadDir, downloadUrl.getFile());
+            final File downloadedFile = new File(inferDownloadDir, url.getFile());
 
             // TODO: could make these configurable
-            FileUtils.copyURLToFile(downloadUrl, downloadedFile, CONNECTION_TIMEOUT, READ_TIMEOUT);
+            FileUtils.copyURLToFile(url, downloadedFile, CONNECTION_TIMEOUT, READ_TIMEOUT);
 
             getLog().info(String.format("Infer downloaded to %s; now extracting.", inferDownloadDir.getAbsolutePath()));
 
@@ -499,12 +508,17 @@ public class InferMojo extends AbstractMojo {
                     return file.getAbsolutePath();
                 }
             }
+        } catch(MalformedURLException e){
+            final String errMsg = String.format("URL was malformed: " + url);
+            getLog().error(errMsg, e);
+            throw new MojoExecutionException(errMsg, e);
         } catch (final IOException e) {
-            final String errMsg = "Invalid URL! Cannot continue Infer check.";
+            final String errMsg = String.format("Unable to get Infer from URL: %s! Cannot continue Infer check.", url);
             getLog().error(errMsg, e);
             throw new MojoExecutionException(errMsg, e);
         }
-        throw new MojoExecutionException("unable to download infer! Aborting execution...");
+
+        throw new MojoExecutionException("Unable to download infer! Aborting execution...");
     }
 
     /**
@@ -555,13 +569,19 @@ public class InferMojo extends AbstractMojo {
                 if (entry.isDirectory()) {
                     FileUtils.forceMkdir(fileToWrite);
                 } else {
-                    final BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(fileToWrite));
-                    final byte[] buffer = new byte[4096];
-                    int n = 0;
-                    while (-1 != (n = tarIn.read(buffer))) {
-                        out.write(buffer, 0, n);
+                    BufferedOutputStream out = null;
+                    try {
+                        out = new BufferedOutputStream(new FileOutputStream(fileToWrite));
+                        final byte[] buffer = new byte[4096];
+                        int n = 0;
+                        while (-1 != (n = tarIn.read(buffer))) {
+                            out.write(buffer, 0, n);
+                        }
+                    } finally {
+                        if (out != null) {
+                            out.close();
+                        }
                     }
-                    out.close();
                 }
 
                 // assign file permissions
@@ -577,18 +597,6 @@ public class InferMojo extends AbstractMojo {
         } finally {
             if (tarIn != null) {
                 tarIn.close();
-            }
-
-            if (xzIn != null) {
-                xzIn.close();
-            }
-
-            if (in != null) {
-                in.close();
-            }
-
-            if (fin != null) {
-                fin.close();
             }
         }
     }
