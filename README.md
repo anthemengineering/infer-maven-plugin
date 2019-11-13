@@ -33,7 +33,7 @@ any potential bugs it has detected (currently very similar output to executing `
 <plugin>
     <groupId>com.anthemengineering.mojo</groupId>
     <artifactId>infer-maven-plugin</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version> <!-- needs to be updated in case of pushing a new version to maven central -->
     <configuration>
         <consoleOut>false</consoleOut>
     </configuration>
